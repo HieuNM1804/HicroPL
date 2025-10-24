@@ -50,10 +50,11 @@
 If you find our work helpful for your research, please consider citing the following BibTeX entry.
 
 ```
-@article{zheng2025hierarchical,
-  title={Hierarchical Cross-modal Prompt Learning for Vision-Language Models},
+@inproceedings{zheng2025hierarchical,
+  title={Hierarchical cross-modal prompt learning for vision-language models},
   author={Zheng, Hao and Yang, Shunzhi and He, Zhuoxin and Yang, Jinfeng and Huang, Zhenhua},
-  journal={arXiv preprint arXiv:2507.14976},
+  booktitle={Proceedings of the IEEE/CVF International Conference on Computer Vision},
+  pages={1891--1901},
   year={2025}
 }
 ```
