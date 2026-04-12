@@ -1,4 +1,4 @@
-# Hierarchical Cross-modal Prompt Learning for Vision-Language Models [ICCV 2025]
+# HiCroPL: Hierarchical Cross-modal Prompt Learning for Vision-Language Models [ICCV 2025]
 
 > This is the official implementation of the paper " [Hierarchical Cross-modal Prompt Learning for Vision-Language Models](https://arxiv.org/pdf/2507.14976)".
 >
@@ -6,29 +6,96 @@
 
 ------
 
-## Highlights
+## Overview
 
 ![motivation](docs/motivation.png)
 
-*Figure 1. Comparison of HiCroPL with existing prompting approaches. (a) Most existing methods adopt uni-modal adaptation or isolated multi-modal solutions to fine-tune CLIP. (b) Multi-modal Prompt Learning (MaPLe) proposes a one way (i.e. text-to-vision) coupling function to bridge the two modalities, but visual concepts lack pathways to guide textual semantics. (c) HiCroPL introduces a bidirectional knowledge flow mechanism between the two modalities, enabling them to refine their semantics mutually for deep alignment. Besides, the representation used for downstream decisions contains rich intermediate features for improved generalization.*
+**HiCroPL** is a hierarchical cross-modal prompt learning framework for adapting frozen vision-language models such as CLIP.
 
-![framework_final](docs/framework_final.png)
+Unlike uni-modal prompting methods or one-way coupling designs, HiCroPL builds **bidirectional knowledge flow** between the textual and visual branches. The core idea is simple:
 
-*Figure 2. (a) Overview of the proposed HiCroPL framework. (b) Detailed illustration of the Bidirectional Knowledge flow mechanism. From Layer 1 to k, the LKP first initializes layer-specific proxy tokens to encapsulate the key information relevant to the current layer, which then guide visual prompt refinement via the mapper M. The reverse flow from Layer k+1 to L follows an identical process.*
+- In early layers, textual prompts transfer relatively clear semantic priors to the visual branch.
+- In later layers, visually grounded prompts refine the textual branch and improve cross-modal alignment.
+- A hierarchical knowledge mapper and lightweight layer-specific proxy tokens enable prompt interaction across layers while preserving transferable shallow semantics.
 
-> **Abstract:** Pre-trained Vision-Language Models (VLMs) such as CLIP have shown excellent generalization abilities. However, adapting these large-scale models to downstream tasks while preserving their generalization capabilities remains challenging. Although prompt learning methods have shown promise, they suffer from two fundamental bottlenecks that limit generalization: (a) modality isolation, and (b) hierarchical semantic decay. To address these limitations, we propose HiCroPL, a Hierarchical Crossmodal Prompt Learning framework that establishes bidirectional knowledge flow between text and vision modalities, enabling them to refine their semantics mutually. HiCroPL routes knowledge flows by leveraging the complementary strengths of text and vision. In early layers, text prompts inject relatively clear semantics into visual prompts through a hierarchical knowledge mapper, enhancing the representation of low-level visual semantics. In later layers, visual prompts encoding specific task-relevant objects flow back to refine text prompts, enabling deeper alignment. Crucially, our hierarchical knowledge mapper allows representations at multi-scales to be fused, ensuring that deeper representations retain transferable shallow semantics thereby enhancing generalization. We further introduce a lightweight layer-specific knowledge proxy to enable efficient cross-modal interactions. Extensive evaluations across four tasks demonstrate HiCroPL’s superior performance, achieving state-of-the-art results on 11 benchmarks with significant improvements.
+## Highlights
 
-## Contributions
+- **Bidirectional cross-modal prompting.** HiCroPL enables prompt interaction in both text-to-vision and vision-to-text directions instead of relying on isolated or one-way adaptation.
+- **Hierarchical knowledge flow across layers.** Prompt interaction is distributed through the encoder, allowing shallow transferable semantics and deeper task-relevant cues to cooperate.
+- **Layer-specific proxy tokens.** Lightweight proxy tokens make cross-modal interaction efficient without introducing heavy additional modules.
+- **Strong downstream performance.** HiCroPL delivers competitive generalization and is especially strong in low-shot adaptation settings.
 
-• **We propose a novel hierarchical prompt learning framework** that effectively adapts VLMs to downstream tasks while preserving their inherent generalization capability. 
+## Method
 
-• The bidirectional knowledge flow **establishes reciprocal pathways between text and vision modalities**, enabling mutual refinement of cross-modal semantics
+HiCroPL is built on three key ingredients:
 
-• The design of the hierarchical knowledge mapper **facilitates information transfer between modalities at multiple scales**, mitigates semantic decay, and improves generalization performance. 
+| Component | Role |
+| --- | --- |
+| Cross-modal prompt learner | Maintains textual and visual prompt tokens across layers. |
+| Layer-specific knowledge proxy | Summarizes prompt information at each layer for efficient interaction. |
+| Hierarchical knowledge mapper | Transfers prompt information across modalities in a bidirectional and layer-aware way. |
 
-• Comprehensive experiments across 4 tasks and 11 benchmarks validate HiCroPL’s effectiveness and robustness.
+A high-level forward pipeline is:
 
-## Results on B2N
+1. Initialize textual and visual prompts across multiple layers.
+2. Refine visual prompts in early layers with text-to-vision knowledge flow.
+3. Refine textual prompts in later layers with vision-to-text knowledge flow.
+4. Inject the resulting prompts into the CLIP encoders for prediction.
+
+## Running HiCroPL
+
+### Environment
+
+```bash
+conda create -n hicropl python=3.10 -y
+conda activate hicropl
+pip install -r requirements.txt
+```
+Recommended PyTorch versions: `1.13.0` or `2.2.0`.
+
+### Data
+
+Prepare datasets following the standard [CoOp dataset setup](https://github.com/KaiyangZhou/CoOp/blob/main/DATASETS.md) setup and update the dataset root in the shell scripts under `scripts/hicropl/`:
+
+```bash
+DATA="/path/to/dataset/folder"
+```
+
+### Quick Start
+
+Base-to-Novel training:
+
+```bash
+sh scripts/hicropl/base2new_train_hicropl.sh imagenet 1
+```
+
+Base-to-Novel evaluation:
+
+```bash
+sh scripts/hicropl/base2new_test_hicropl.sh imagenet 1
+```
+
+Few-shot training:
+
+```bash
+sh scripts/hicropl/few_shot.sh oxford_pets 16
+```
+
+Cross-dataset training:
+
+```bash
+sh scripts/hicropl/xd_train.sh caltech101 1
+```
+
+Cross-dataset evaluation:
+
+```bash
+sh scripts/hicropl/xd_test.sh caltech101 1
+```
+
+## Results
+
+Average base-to-novel results across 11 datasets:
 
 | Method                                                       | Base  | Novel | HM    |
 | ------------------------------------------------------------ | ----- | ----- | ----- |
@@ -43,7 +110,8 @@
 | [CoPrompt](https://arxiv.org/abs/2306.01195)                 | 84.00 | 77.23 | 80.47 |
 | [HiCroPL](https://arxiv.org/pdf/2507.14976)                  | 85.89 | 77.99 | 81.75 |
 
-------
+
+HiCroPL achieves the best harmonic mean among these compared methods, showing a strong balance between adapting to base classes and preserving transferability to novel classes.
 
 ## Citation
 
@@ -62,4 +130,3 @@ If you find our work helpful for your research, please consider citing the follo
 ## Acknowledgements
 
 Our code is based on [Co-CoOp, CoOp](https://github.com/KaiyangZhou/CoOp) and [MaPLe](https://github.com/muzairkhattak/multimodal-prompt-learning). We thank the authors for releasing their code. If you use our code, please consider citing these works as well.
-

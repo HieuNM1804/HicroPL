@@ -17,7 +17,6 @@ from clip.model import QuickGELU
 from clip.model import convert_weights
 from .imagenet_templates import IMAGENET_TEMPLATES
 from collections import OrderedDict
-import math
 
 _tokenizer = _Tokenizer()
 
@@ -162,7 +161,7 @@ class CrossModalPromptLearner(nn.Module):
         super().__init__()
         n_cls = len(classnames)
         # Make sure Language depth >= 1
-        assert cfg.TRAINER.HICROPL.PROMPT_DEPTH >= 1, "In Independent VL prompting, Language prompt depth should be >=1" \
+        assert cfg.TRAINER.HICROPL.PROMPT_DEPTH >= 1, "In HiCroPL prompting, prompt depth should be >=1" \
                                                         "\nPlease use VPT trainer if you want to learn only vision " \
                                                         "branch  "
         n_ctx = cfg.TRAINER.HICROPL.N_CTX
@@ -206,7 +205,7 @@ class CrossModalPromptLearner(nn.Module):
         ######## cross-modal visual token initialization ########
         visual_vectors = torch.empty(n_ctx, v_dim, dtype=dtype)
         nn.init.normal_(visual_vectors, std=0.02)
-        cross_prompts_visual = nn.ParameterList([nn.Parameter(visual_vectors) for _ in range(self.cross_prompts_depth)])
+        cross_prompts_visual = nn.ParameterList([nn.Parameter(visual_vectors.clone()) for _ in range(self.cross_prompts_depth)])
         self.cross_prompts_visual = cross_prompts_visual
         ######## cross-modal visual token initialization end ########
 
@@ -221,9 +220,9 @@ class CrossModalPromptLearner(nn.Module):
         attn_pooling_visual = AttentionPooling(hidden_size=v_dim, num_attention_heads=8)
         self.attn_pooling_visual_nets = _get_clones(attn_pooling_visual, self.cross_prompts_depth - self.cross_layer)
         text_proxy_token = torch.randn(1, ctx_dim, dtype=dtype)
-        self.text_proxy_token = nn.ParameterList([nn.Parameter(text_proxy_token) for _ in range(self.cross_layer)])
+        self.text_proxy_token = nn.ParameterList([nn.Parameter(text_proxy_token.clone()) for _ in range(self.cross_layer)])
         visual_proxy_token = torch.randn(1, v_dim, dtype=dtype)
-        self.visual_proxy_token = nn.ParameterList([nn.Parameter(visual_proxy_token) for _ in range(self.cross_layer, self.cross_prompts_depth)])
+        self.visual_proxy_token = nn.ParameterList([nn.Parameter(visual_proxy_token.clone()) for _ in range(self.cross_layer, self.cross_prompts_depth)])
         if cfg.TRAINER.HICROPL.PREC == "fp16":
             self.attn_pooling_text_nets, self.attn_pooling_visual_nets = self.attn_pooling_text_nets.half(), self.attn_pooling_visual_nets.half()
         ######## knowledge mapper network and LKP network initialization end ########
@@ -285,8 +284,10 @@ class CrossModalPromptLearner(nn.Module):
         return prompts
 
     def forward(self):
+        current_text_prompts = list(self.cross_prompts_text)
+        current_visual_prompts = list(self.cross_prompts_visual)
         # first layer text token
-        ctx = self.cross_prompts_text[0]
+        ctx = current_text_prompts[0]
         if ctx.dim() == 2:
             ctx = ctx.unsqueeze(0).expand(self.n_cls, -1, -1)  # [n_cls, 4, 512]
         prefix = self.token_prefix
@@ -295,16 +296,15 @@ class CrossModalPromptLearner(nn.Module):
         text_input = self.construct_prompts(ctx, prefix, suffix)  # [n_cls, 77, 512]
 
         ######## T->I mapping ########
-        visual_prompts = torch.cat([self.cross_prompts_visual[i].unsqueeze(0) for i in range(self.cross_layer)], dim=0)  # [self.cross_layer, n_ctx, 768]
-        text_prompts = torch.cat([self.cross_prompts_text[i].unsqueeze(0) for i in range(self.cross_layer)], dim=0)  # [self.cross_layer, n_ctx, 512]
+        visual_prompts = torch.cat([current_visual_prompts[i].unsqueeze(0) for i in range(self.cross_layer)], dim=0)  # [self.cross_layer, n_ctx, 768]
         # LKP's work
         proxy_text_tokens = []
         for i in range(self.cross_layer):
             # For T->I mapping, the text prompts should be compressed, text_proxy_token as Q, cross_prompts_text[i] as K, V.
             text_proxy_token = self.attn_pooling_text_nets[i](
                 token_query=self.text_proxy_token[i],  # [1, ctx_dim]
-                sequence_key=self.cross_prompts_text[i],  # [n_ctx, ctx_dim]
-                sequence_value=self.cross_prompts_text[i]  # [n_ctx, ctx_dim]
+                sequence_key=current_text_prompts[i],  # [n_ctx, ctx_dim]
+                sequence_value=current_text_prompts[i]  # [n_ctx, ctx_dim]
             )
             proxy_text_tokens.append(text_proxy_token)
         proxy_text_prompts = torch.cat(proxy_text_tokens, dim=0)  # [self.cross_layer, 1, ctx_dim]
@@ -314,36 +314,35 @@ class CrossModalPromptLearner(nn.Module):
         updated_visual_prompts = self.text2visual_net(visual_prompts, proxy_text_prompts, proxy_text_prompts)  # [self.cross_layer * n_ctx, 768]
         updated_visual_prompts = updated_visual_prompts.view(self.cross_layer, -1, updated_visual_prompts.shape[-1])  # [self.cross_layer, n_ctx, 768]
         for i in range(self.cross_layer):
-            self.cross_prompts_visual[i].data.copy_(updated_visual_prompts[i])
+            current_visual_prompts[i] = updated_visual_prompts[i]
         ######## T->I mapping end ########
 
         ######## I->T mapping ########
-        text_prompts = torch.cat([self.cross_prompts_text[i].unsqueeze(0) for i in range(self.cross_layer, self.cross_prompts_depth)], dim=0)  # [all_layer - self.cross_layer, n_ctx, 512]
-        visual_prompts = torch.cat([self.cross_prompts_visual[i].unsqueeze(0) for i in range(self.cross_layer, self.cross_prompts_depth)], dim=0)  # [all_layer - self.cross_layer, n_ctx, 768]
+        text_prompts = torch.cat([current_text_prompts[i].unsqueeze(0) for i in range(self.cross_layer, self.cross_prompts_depth)], dim=0)  # [all_layer - self.cross_layer, n_ctx, 512]
         # LKP's work
         proxy_visual_tokens = []
         for i in range(self.cross_layer, self.cross_prompts_depth):
             # For I->T mapping, the visual prompts should be compressed, visual_proxy_token as Q, cross_prompts_visual[i] as K, V.
             visual_proxy_token = self.attn_pooling_visual_nets[i - self.cross_layer](
                 token_query=self.visual_proxy_token[i - self.cross_layer],  # [1, v_dim]
-                sequence_key=self.cross_prompts_visual[i],  # [n_ctx, v_dim]
-                sequence_value=self.cross_prompts_visual[i]  # [n_ctx, v_dim]
+                sequence_key=current_visual_prompts[i],  # [n_ctx, v_dim]
+                sequence_value=current_visual_prompts[i]  # [n_ctx, v_dim]
             )
             proxy_visual_tokens.append(visual_proxy_token)
-            proxy_visual_prompts = torch.cat(proxy_visual_tokens, dim=0)  # [self.cross_prompts_depth - self.cross_layer, 1, v_dim]
+        proxy_visual_prompts = torch.cat(proxy_visual_tokens, dim=0)  # [self.cross_prompts_depth - self.cross_layer, 1, v_dim]
         text_prompts = text_prompts.view(-1, text_prompts.shape[-1])  # [(all_layer - self.cross_layer) * n_ctx, 512]
         proxy_visual_prompts = proxy_visual_prompts.view(-1, proxy_visual_prompts.shape[-1])  # [(all_layer - self.cross_layer) * n_ctx, 768]
         # cross modal action for [0: self.cross_layer]: I->T
         updated_text_prompts = self.visual2text_net(text_prompts, proxy_visual_prompts, proxy_visual_prompts)  # [(all_layer - self.cross_layer) * n_ctx, 512]
         updated_text_prompts = updated_text_prompts.view(self.cross_prompts_depth - self.cross_layer, -1, updated_text_prompts.shape[-1])  # [self.cross_prompts_depth - self.cross_layer, n_ctx, 512]
         for i in range(self.cross_layer, self.cross_prompts_depth):
-            self.cross_prompts_text[i].data.copy_(updated_text_prompts[i - self.cross_layer])
+            current_text_prompts[i] = updated_text_prompts[i - self.cross_layer]
         ######## I->T mapping end ########
 
         # extract deeper prompts
-        cross_prompts_text_deeper = [self.cross_prompts_text[i] for i in range(1, len(self.cross_prompts_text))]
-        cross_prompts_visual_deeper = [self.cross_prompts_visual[i] for i in range(1, len(self.cross_prompts_visual))]
-        return text_input, self.cross_prompts_visual[0], cross_prompts_text_deeper, cross_prompts_visual_deeper
+        cross_prompts_text_deeper = [current_text_prompts[i] for i in range(1, len(current_text_prompts))]
+        cross_prompts_visual_deeper = [current_visual_prompts[i] for i in range(1, len(current_visual_prompts))]
+        return text_input, current_visual_prompts[0], cross_prompts_text_deeper, cross_prompts_visual_deeper
 
 
 class CustomCLIP(nn.Module):
@@ -393,8 +392,6 @@ class CustomCLIP(nn.Module):
 
 
 def gpt_clip_classifier(classnames, gpt_prompts, clip_model, dataset_name):
-    import os
-    os.makedirs("cache/", exist_ok=True)
 
     with torch.no_grad():
         clip_weights = []
@@ -418,13 +415,12 @@ def gpt_clip_classifier(classnames, gpt_prompts, clip_model, dataset_name):
         clip_weights = torch.stack(clip_weights, dim=0)
         if torch.cuda.is_available():
             clip_weights = clip_weights.cuda()
-        torch.save(clip_weights, f"cache/{dataset_name}_clip_weights_random.pt")
     return clip_weights
 
 @TRAINER_REGISTRY.register()
 class HiCroPL(TrainerX):
     def check_cfg(self, cfg):
-        assert cfg.TRAINER.IVLP.PREC in ["fp16", "fp32", "amp"]
+        assert cfg.TRAINER.HICROPL.PREC in ["fp16", "fp32", "amp"]
 
     def build_model(self):
         cfg = self.cfg
@@ -471,7 +467,7 @@ class HiCroPL(TrainerX):
         self.sched = build_lr_scheduler(self.optim, cfg.OPTIM)
         self.register_model("VLPromptLearner", self.model, self.optim, self.sched)
 
-        self.scaler = GradScaler() if cfg.TRAINER.IVLP.PREC == "amp" else None
+        self.scaler = GradScaler() if cfg.TRAINER.HICROPL.PREC == "amp" else None
 
         # Note that multi-gpu training could be slow because CLIP's size is
         # big, which slows down the copy operation in DataParallel
