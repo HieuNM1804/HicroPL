@@ -431,6 +431,17 @@ class Transformer(nn.Module):
     def forward(self, x: torch.Tensor):
         return self.resblocks(x)
 
+    def forward_with_cls_states(self, x: torch.Tensor):
+        cls_states = []
+        outputs = x
+
+        for block in self.resblocks:
+            outputs = block(outputs)
+            hidden = outputs[0] if isinstance(outputs, list) else outputs
+            cls_states.append(hidden[0])
+
+        return outputs, cls_states
+
 
 
 class VisionTransformer(nn.Module):
@@ -464,7 +475,7 @@ class VisionTransformer(nn.Module):
         self.ln_post = LayerNorm(width)
         self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, return_layerwise_cls=False):
         x = self.conv1(x)  # shape = [*, width, grid, grid]
         x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
         x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
@@ -486,13 +497,19 @@ class VisionTransformer(nn.Module):
         x = self.ln_pre(x)
 
         x = x.permute(1, 0, 2)  # NLD -> LND
-        x = self.transformer(x)
+        if return_layerwise_cls:
+            x, layerwise_cls = self.transformer.forward_with_cls_states(x)
+        else:
+            x = self.transformer(x)
         x = x.permute(1, 0, 2)  # LND -> NLD
 
         x = self.ln_post(x[:, 0, :])
 
         if self.proj is not None:
             x = x @ self.proj
+
+        if return_layerwise_cls:
+            return x, layerwise_cls
 
         return x
 
@@ -519,7 +536,7 @@ class VisionTransformer_HiCroPL(nn.Module):
         self.ln_post = LayerNorm(width)
         self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
 
-    def forward(self, x: torch.Tensor, img_prompts, cross_prompts_visual_deeper):
+    def forward(self, x: torch.Tensor, img_prompts, cross_prompts_visual_deeper, return_layerwise_cls=False):
         x = self.conv1(x)  # shape = [*, width, grid, grid]
         x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
         x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
@@ -539,7 +556,10 @@ class VisionTransformer_HiCroPL(nn.Module):
         # Normal code as before
         x = self.ln_pre(x)
         x = x.permute(1, 0, 2)  # NLD -> LND
-        outputs = self.transformer([x, cross_prompts_visual_deeper])
+        if return_layerwise_cls:
+            outputs, layerwise_cls = self.transformer.forward_with_cls_states([x, cross_prompts_visual_deeper])
+        else:
+            outputs = self.transformer([x, cross_prompts_visual_deeper])
         x = outputs[0]
         x = x.permute(1, 0, 2)  # LND -> NLD
 
@@ -547,6 +567,9 @@ class VisionTransformer_HiCroPL(nn.Module):
 
         if self.proj is not None:
             x = x @ self.proj
+
+        if return_layerwise_cls:
+            return x, layerwise_cls
 
         return x
 

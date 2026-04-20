@@ -80,14 +80,22 @@ class Classification(EvaluatorBase):
         results["error_rate"] = err
         results["macro_f1"] = macro_f1
 
-        print(
-            "=> result\n"
-            f"* total: {self._total:,}\n"
-            f"* correct: {self._correct:,}\n"
-            f"* accuracy: {acc:.2f}%\n"
-            f"* error: {err:.2f}%\n"
-            f"* macro_f1: {macro_f1:.2f}%"
-        )
+        if self.cfg.TEST.METRICS_ONLY:
+            print(
+                f"* total: {self._total:,}\n"
+                f"* correct: {self._correct:,}\n"
+                f"* accuracy: {acc:.2f}%\n"
+                f"* error: {err:.2f}%"
+            )
+        else:
+            print(
+                "=> result\n"
+                f"* total: {self._total:,}\n"
+                f"* correct: {self._correct:,}\n"
+                f"* accuracy: {acc:.2f}%\n"
+                f"* error: {err:.2f}%\n"
+                f"* macro_f1: {macro_f1:.2f}%"
+            )
 
         if self._per_class_res is not None:
             labels = list(self._per_class_res.keys())

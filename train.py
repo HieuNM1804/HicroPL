@@ -1,7 +1,13 @@
 import argparse
 import torch
 
-from dassl.utils import setup_logger, set_random_seed, collect_env_info
+from dassl.utils import (
+    setup_logger,
+    set_random_seed,
+    collect_env_info,
+    suppress_print,
+    temporary_restore_print,
+)
 from dassl.config import get_cfg_default
 from dassl.engine import build_trainer
 
@@ -143,6 +149,10 @@ def extend_cfg(cfg):
     cfg.TRAINER.HICROPL.PROMPT_DEPTH = 9  # Max 12, minimum 0, for 1 it will act as shallow HICROPL (J=1)
     cfg.TRAINER.HICROPL.TEACHER_NAME = "ViT-L/14"
     cfg.TRAINER.HICROPL.LAMBD = 10.
+    cfg.TRAINER.HICROPL.TEACHER_LN_MODE = "none"
+    cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL = False
+    cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL_LOSS = "cosine"
+    cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL_KL_T = 1.0
     cfg.DATASET.SUBSAMPLE_CLASSES = "all"  # all, base or new
 
 
@@ -171,6 +181,9 @@ def setup_cfg(args):
 
 def main(args):
     cfg = setup_cfg(args)
+    if cfg.TRAIN.PRINT_FINAL_ONLY:
+        suppress_print()
+
     if cfg.SEED >= 0:
         print("Setting fixed seed: {}".format(cfg.SEED))
         set_random_seed(cfg.SEED)
@@ -187,7 +200,11 @@ def main(args):
 
     if args.eval_only:
         trainer.load_model(args.model_dir, epoch=args.load_epoch)
-        trainer.test()
+        if cfg.TRAIN.PRINT_FINAL_ONLY:
+            with temporary_restore_print():
+                trainer.test()
+        else:
+            trainer.test()
         return
 
     if not args.no_train:

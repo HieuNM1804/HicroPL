@@ -1,0 +1,21 @@
+HiCroPL benchmark on 5 datasets
+Timestamp: 2026-04-19 09:03:36
+Repo root: C:\MinhHieu\model\HiCroPL
+Data root: C:\MinhHieu\model\data
+Datasets: caltech101, dtd, eurosat, oxford_flowers, oxford_pets
+Seeds: 1, 2, 3
+Shots: 16
+Trainer: HiCroPL
+Cfg: vit_b16_c2_ep50_batch32_16ctx
+
+
+Dataset        BaseMean NovelMean HMMean BaseStd NovelStd HMStd
+-------        -------- --------- ------ ------- -------- -----
+caltech101     98.43    95.92     97.16  0.16    0.23     0.13 
+dtd            83.10    67.31     74.37  0.35    1.67     1.08 
+eurosat        94.10    75.45     83.69  0.91    5.23     3.29 
+oxford_flowers 98.07    75.84     85.53  0.24    0.50     0.23 
+oxford_pets    95.84    97.69     96.75  0.08    0.29     0.13 
+
+
+

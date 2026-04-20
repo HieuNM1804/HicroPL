@@ -13,7 +13,7 @@ from dassl.optim import build_optimizer, build_lr_scheduler
 from dassl.utils import (
     MetricMeter, AverageMeter, tolist_if_not, count_num_param, load_checkpoint,
     save_checkpoint, mkdir_if_missing, resume_from_checkpoint,
-    load_pretrained_weights
+    load_pretrained_weights, temporary_restore_print
 )
 from dassl.modeling import build_head, build_backbone
 from dassl.evaluation import build_evaluator
@@ -400,21 +400,25 @@ class SimpleTrainer(TrainerBase):
         self.time_start = time.time()
 
     def after_train(self):
-        print("Finish training")
-
         do_test = not self.cfg.TEST.NO_TEST
         if do_test:
             if self.cfg.TEST.FINAL_MODEL == "best_val":
-                print("Deploy the model with the best val performance")
                 self.load_model(self.output_dir)
+            if self.cfg.TRAIN.PRINT_FINAL_ONLY:
+                with temporary_restore_print():
+                    self.test()
             else:
-                print("Deploy the last-epoch model")
-            self.test()
+                if self.cfg.TEST.FINAL_MODEL == "best_val":
+                    print("Deploy the model with the best val performance")
+                else:
+                    print("Deploy the last-epoch model")
+                self.test()
 
-        # Show elapsed time
-        elapsed = round(time.time() - self.time_start)
-        elapsed = str(datetime.timedelta(seconds=elapsed))
-        print(f"Elapsed: {elapsed}")
+        if not self.cfg.TRAIN.PRINT_FINAL_ONLY:
+            print("Finish training")
+            elapsed = round(time.time() - self.time_start)
+            elapsed = str(datetime.timedelta(seconds=elapsed))
+            print(f"Elapsed: {elapsed}")
 
         # Close writer
         self.close_writer()
@@ -457,9 +461,10 @@ class SimpleTrainer(TrainerBase):
             split = "test"  # in case val_loader is None
             data_loader = self.test_loader
 
-        print(f"Evaluate on the *{split}* set")
+        if self.cfg.TEST.PRINT_EVAL_HEADER:
+            print(f"Evaluate on the *{split}* set")
 
-        for batch_idx, batch in enumerate(tqdm(data_loader)):
+        for batch_idx, batch in enumerate(tqdm(data_loader, disable=not self.cfg.TEST.SHOW_PROGRESS)):
             input, label = self.parse_batch_test(batch)
             output = self.model_inference(input)
             self.evaluator.process(output, label)
@@ -540,8 +545,9 @@ class TrainerXU(SimpleTrainer):
             batch_time.update(time.time() - end)
             losses.update(loss_summary)
 
-            meet_freq = (self.batch_idx + 1) % self.cfg.TRAIN.PRINT_FREQ == 0
-            only_few_batches = self.num_batches < self.cfg.TRAIN.PRINT_FREQ
+            print_batch_log = self.cfg.TRAIN.PRINT_BATCH_LOG and self.cfg.TRAIN.PRINT_FREQ > 0
+            meet_freq = print_batch_log and (self.batch_idx + 1) % self.cfg.TRAIN.PRINT_FREQ == 0
+            only_few_batches = print_batch_log and self.num_batches < self.cfg.TRAIN.PRINT_FREQ
             if meet_freq or only_few_batches:
                 nb_remain = 0
                 nb_remain += self.num_batches - self.batch_idx - 1
@@ -597,8 +603,9 @@ class TrainerX(SimpleTrainer):
             batch_time.update(time.time() - end)
             losses.update(loss_summary)
 
-            meet_freq = (self.batch_idx + 1) % self.cfg.TRAIN.PRINT_FREQ == 0
-            only_few_batches = self.num_batches < self.cfg.TRAIN.PRINT_FREQ
+            print_batch_log = self.cfg.TRAIN.PRINT_BATCH_LOG and self.cfg.TRAIN.PRINT_FREQ > 0
+            meet_freq = print_batch_log and (self.batch_idx + 1) % self.cfg.TRAIN.PRINT_FREQ == 0
+            only_few_batches = print_batch_log and self.num_batches < self.cfg.TRAIN.PRINT_FREQ
             if meet_freq or only_few_batches:
                 nb_remain = 0
                 nb_remain += self.num_batches - self.batch_idx - 1

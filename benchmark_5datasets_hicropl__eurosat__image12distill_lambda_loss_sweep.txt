@@ -1,0 +1,18 @@
+HiCroPL image 12-layer distill loss sweep
+Timestamp: 2026-04-20 14:55:44
+Dataset: eurosat
+Seeds: 1, 2, 3
+Shots: 16
+Trainer: HiCroPL
+Cfg: vit_b16_c2_ep50_batch32_16ctx
+Teacher LN mode: none
+Lambdas: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20
+Loss modes: cosine, l1, smooth_l1, mse, kl
+
+==========================================
+Lambda: 1
+Setting                          Base    Novel       HM  BaseStd NovelStd    HMStd
+----------------------------------------------------------------------------------
+lambda1_cosine                  96.24    65.10    77.28     0.77    11.06     7.60
+lambda1_l1                      96.14    65.30    77.29     0.52    12.56     8.77
+lambda1_smooth_l1               95.86    62.43    75.41     0.69     7.99     5.71

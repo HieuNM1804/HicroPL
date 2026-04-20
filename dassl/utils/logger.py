@@ -2,10 +2,21 @@ import os
 import sys
 import time
 import os.path as osp
+import builtins
+from contextlib import contextmanager
 
 from .tools import mkdir_if_missing
 
-__all__ = ["Logger", "setup_logger"]
+__all__ = [
+    "Logger",
+    "setup_logger",
+    "suppress_print",
+    "restore_print",
+    "temporary_restore_print",
+]
+
+_ORIGINAL_PRINT = builtins.print
+_PRINT_SUPPRESSED = False
 
 
 class Logger:
@@ -71,3 +82,34 @@ def setup_logger(output=None):
         fpath += time.strftime("-%Y-%m-%d-%H-%M-%S")
 
     sys.stdout = Logger(fpath)
+
+
+def suppress_print():
+    global _PRINT_SUPPRESSED
+
+    if _PRINT_SUPPRESSED:
+        return
+
+    builtins.print = lambda *args, **kwargs: None
+    _PRINT_SUPPRESSED = True
+
+
+def restore_print():
+    global _PRINT_SUPPRESSED
+
+    builtins.print = _ORIGINAL_PRINT
+    _PRINT_SUPPRESSED = False
+
+
+@contextmanager
+def temporary_restore_print():
+    was_suppressed = _PRINT_SUPPRESSED
+
+    if was_suppressed:
+        restore_print()
+
+    try:
+        yield
+    finally:
+        if was_suppressed:
+            suppress_print()

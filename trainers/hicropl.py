@@ -38,6 +38,72 @@ CoPrompt_dataset_name_mapping = {
     "UCF101": "ucf101",
 }
 
+TEACHER_LN_MODE_TO_KEYS = {
+    "none": (),
+    "ln_pre": ("ln_pre",),
+    "ln_post": ("ln_post",),
+    "ln_pre_ln_post": ("ln_pre", "ln_post"),
+    "ln_1": ("ln_1",),
+    "ln_2": ("ln_2",),
+    "ln_1_ln_2": ("ln_1", "ln_2"),
+    "ln_1_ln_2_ln_pre_ln_post": ("ln_1", "ln_2", "ln_pre", "ln_post"),
+}
+
+IMAGE_LAYER_DISTILL_LOSSES = ("cosine", "l1", "smooth_l1", "mse", "kl")
+
+
+def teacher_ln_mode_matches(param_name, teacher_ln_mode):
+    if teacher_ln_mode not in TEACHER_LN_MODE_TO_KEYS:
+        raise ValueError(f"Unsupported TEACHER_LN_MODE: {teacher_ln_mode}")
+
+    return any(f".{key}." in param_name for key in TEACHER_LN_MODE_TO_KEYS[teacher_ln_mode])
+
+
+def compute_single_layer_distill(student_cls, teacher_cls, loss_name, kl_temperature):
+    student_cls = student_cls.float()
+    teacher_cls = teacher_cls.float()
+
+    if loss_name == "cosine":
+        return 1.0 - F.cosine_similarity(student_cls, teacher_cls, dim=1, eps=1e-07).mean()
+
+    if loss_name == "l1":
+        return F.l1_loss(student_cls, teacher_cls)
+
+    if loss_name == "smooth_l1":
+        return F.smooth_l1_loss(student_cls, teacher_cls)
+
+    if loss_name == "mse":
+        return F.mse_loss(student_cls, teacher_cls)
+
+    if loss_name == "kl":
+        temperature = float(kl_temperature)
+        student_log_probs = F.log_softmax(student_cls / temperature, dim=-1)
+        teacher_probs = F.softmax(teacher_cls / temperature, dim=-1)
+        return F.kl_div(student_log_probs, teacher_probs, reduction="batchmean") * (temperature ** 2)
+
+    raise ValueError(f"Unsupported IMAGE_LAYER_DISTILL_LOSS: {loss_name}")
+
+
+def compute_layerwise_distill(student_layerwise_cls, teacher_layerwise_cls, loss_name, kl_temperature):
+    if len(student_layerwise_cls) != len(teacher_layerwise_cls):
+        raise ValueError(
+            "Student and teacher layerwise CLS lists must have the same length: "
+            f"{len(student_layerwise_cls)} vs {len(teacher_layerwise_cls)}"
+        )
+
+    losses = []
+    for student_cls, teacher_cls in zip(student_layerwise_cls, teacher_layerwise_cls):
+        losses.append(
+            compute_single_layer_distill(
+                student_cls,
+                teacher_cls,
+                loss_name=loss_name,
+                kl_temperature=kl_temperature,
+            )
+        )
+
+    return torch.stack(losses).mean()
+
 def _get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
 
@@ -126,8 +192,25 @@ class AttentionPooling(nn.Module):
         self.ln_2 = nn.LayerNorm(hidden_size)
 
     def forward(self, token_query, sequence_key, sequence_value):
-        token_query = token_query + self.attn(self.ln_1(token_query), self.ln_1(sequence_key), self.ln_1(sequence_value), need_weights=False)[0]
+        squeeze_batch = token_query.dim() == 2
+        if squeeze_batch:
+            token_query = token_query.unsqueeze(1)
+        if sequence_key.dim() == 2:
+            sequence_key = sequence_key.unsqueeze(1)
+        if sequence_value.dim() == 2:
+            sequence_value = sequence_value.unsqueeze(1)
+
+        token_query = token_query + self.attn(
+            self.ln_1(token_query),
+            self.ln_1(sequence_key),
+            self.ln_1(sequence_value),
+            need_weights=False
+        )[0]
         token_query = self.ln_2(token_query)
+
+        if squeeze_batch:
+            token_query = token_query.squeeze(1)
+
         return token_query
 
 # Multi-scale Knowledge Mapper
@@ -148,11 +231,23 @@ class CrossPromptAttention(nn.Module):
         self.ln_2 = nn.LayerNorm(hidden_size)
 
     def forward(self, q, k, v):
+        squeeze_batch = q.dim() == 2
+        if squeeze_batch:
+            q = q.unsqueeze(1)
+        if k.dim() == 2:
+            k = k.unsqueeze(1)
+        if v.dim() == 2:
+            v = v.unsqueeze(1)
+
         q_proj = self.linear_q(q)
         k_proj = self.linear_k(k)
         v_proj = self.linear_v(v)
         q_proj = q_proj + self.attn(self.ln_1(q_proj), self.ln_1(k_proj), self.ln_1(v_proj), need_weights=False)[0]
         q_proj = q_proj + self.ffn(self.ln_2(q_proj))
+
+        if squeeze_batch:
+            q_proj = q_proj.squeeze(1)
+
         return q_proj
 
 
@@ -355,19 +450,40 @@ class CustomCLIP(nn.Module):
         self.logit_scale = clip_model.logit_scale
         self.dtype = clip_model.dtype
         self.lambd = cfg.TRAINER.HICROPL.LAMBD
+        self.teacher_ln_mode = cfg.TRAINER.HICROPL.TEACHER_LN_MODE
+        self.image_layer_distill = cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL
+        self.image_layer_distill_loss = cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL_LOSS
+        self.image_layer_distill_kl_t = cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL_KL_T
 
     def forward(self, image, label=None):
         tokenized_prompts = self.tokenized_prompts
         logit_scale = self.logit_scale.exp()
+        use_layerwise_image_distill = self.training and self.image_layer_distill
 
-        with torch.no_grad():
-            image_features_fixed = self.prompt_learner.ZS_image_encoder(image.type(self.dtype))
+        teacher_grad_enabled = self.training and self.teacher_ln_mode != "none"
+        teacher_grad_context = torch.enable_grad() if teacher_grad_enabled else torch.no_grad()
+        with teacher_grad_context:
+            if use_layerwise_image_distill:
+                image_features_fixed, teacher_layerwise_cls = self.prompt_learner.ZS_image_encoder(
+                    image.type(self.dtype),
+                    return_layerwise_cls=True
+                )
+            else:
+                image_features_fixed = self.prompt_learner.ZS_image_encoder(image.type(self.dtype))
             image_features_fixed = image_features_fixed / image_features_fixed.norm(dim=-1, keepdim=True)
 
         # Compute the prompted image and text features
         text_input, visual_ctx, cross_prompts_text_deeper, cross_prompts_visual_deeper = self.prompt_learner()
         text_features = self.text_encoder(text_input, tokenized_prompts, cross_prompts_text_deeper)
-        image_features = self.image_encoder(image.type(self.dtype), visual_ctx, cross_prompts_visual_deeper)
+        if use_layerwise_image_distill:
+            image_features, student_layerwise_cls = self.image_encoder(
+                image.type(self.dtype),
+                visual_ctx,
+                cross_prompts_visual_deeper,
+                return_layerwise_cls=True
+            )
+        else:
+            image_features = self.image_encoder(image.type(self.dtype), visual_ctx, cross_prompts_visual_deeper)
 
         image_features = image_features / image_features.norm(dim=-1, keepdim=True)
         image_features = image_features + image_features_fixed
@@ -387,6 +503,13 @@ class CustomCLIP(nn.Module):
             score = cos(image_features, image_features_fixed)
             loss_distill_image = 1.0 - torch.mean(score)
             loss_distill = loss_distill_text + loss_distill_image
+            if use_layerwise_image_distill:
+                loss_distill = loss_distill + compute_layerwise_distill(
+                    student_layerwise_cls,
+                    teacher_layerwise_cls,
+                    loss_name=self.image_layer_distill_loss,
+                    kl_temperature=self.image_layer_distill_kl_t,
+                )
             return loss_cls + self.lambd * loss_distill
         return logits
 
@@ -421,10 +544,13 @@ def gpt_clip_classifier(classnames, gpt_prompts, clip_model, dataset_name):
 class HiCroPL(TrainerX):
     def check_cfg(self, cfg):
         assert cfg.TRAINER.HICROPL.PREC in ["fp16", "fp32", "amp"]
+        assert cfg.TRAINER.HICROPL.TEACHER_LN_MODE in TEACHER_LN_MODE_TO_KEYS
+        assert cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL_LOSS in IMAGE_LAYER_DISTILL_LOSSES
 
     def build_model(self):
         cfg = self.cfg
         classnames = self.dm.dataset.classnames
+        teacher_ln_mode = cfg.TRAINER.HICROPL.TEACHER_LN_MODE
 
         print(f"Loading CLIP (backbone: {cfg.MODEL.BACKBONE.NAME})")
         clip_model = load_clip_to_cpu(cfg)
@@ -436,7 +562,8 @@ class HiCroPL(TrainerX):
         print("Building custom CLIP")
         self.model = CustomCLIP(cfg, classnames, clip_model)
 
-        print("Turning off gradients in both the image and the text encoder")
+        print(f"Teacher LN mode: {teacher_ln_mode}")
+        print("Turning off gradients in the image and text encoders except prompt parameters and selected teacher LayerNorms")
         name_to_update = "prompt_learner"
 
         for name, param in self.model.named_parameters():
@@ -448,7 +575,7 @@ class HiCroPL(TrainerX):
                     param.requires_grad_(False)
             else:
                 if "ZS_image_encoder" in name:
-                    param.requires_grad_(False)
+                    param.requires_grad_(teacher_ln_mode_matches(name, teacher_ln_mode))
 
 
         # Double check

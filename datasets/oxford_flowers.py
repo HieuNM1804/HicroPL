@@ -15,10 +15,23 @@ class OxfordFlowers(DatasetBase):
 
     dataset_dir = "oxford_flowers"
 
+    @staticmethod
+    def _resolve_image_dir(dataset_dir):
+        image_dir = os.path.join(dataset_dir, "jpg")
+        nested_image_dir = os.path.join(image_dir, "jpg")
+
+        if os.path.isdir(nested_image_dir):
+            entries = os.listdir(image_dir)
+            has_images_at_top_level = any(entry.lower().endswith(".jpg") for entry in entries)
+            if not has_images_at_top_level:
+                return nested_image_dir
+
+        return image_dir
+
     def __init__(self, cfg):
         root = os.path.abspath(os.path.expanduser(cfg.DATASET.ROOT))
         self.dataset_dir = os.path.join(root, self.dataset_dir)
-        self.image_dir = os.path.join(self.dataset_dir, "jpg")
+        self.image_dir = self._resolve_image_dir(self.dataset_dir)
         self.label_file = os.path.join(self.dataset_dir, "imagelabels.mat")
         self.lab2cname_file = os.path.join(self.dataset_dir, "cat_to_name.json")
         self.split_path = os.path.join(self.dataset_dir, "split_zhou_OxfordFlowers.json")

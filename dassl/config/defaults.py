@@ -194,6 +194,10 @@ _C.TRAIN = CN()
 _C.TRAIN.CHECKPOINT_FREQ = 0
 # How often (batch) to print training information
 _C.TRAIN.PRINT_FREQ = 10
+# Print per-batch training logs
+_C.TRAIN.PRINT_BATCH_LOG = False
+# Suppress all prints during training/eval except the final metric block
+_C.TRAIN.PRINT_FINAL_ONLY = False
 # Use 'train_x', 'train_u' or 'smaller_one' to count
 # the number of iterations in an epoch (for DA and SSL)
 _C.TRAIN.COUNT_ITER = "train_x"
@@ -207,6 +211,12 @@ _C.TEST.PER_CLASS_RESULT = False
 # Compute confusion matrix, which will be saved
 # to $OUTPUT_DIR/cmat.pt
 _C.TEST.COMPUTE_CMAT = False
+# Show the "Evaluate on ..." header before evaluation
+_C.TEST.PRINT_EVAL_HEADER = False
+# Show a tqdm progress bar during evaluation
+_C.TEST.SHOW_PROGRESS = False
+# Print only the core classification metrics in the evaluator output
+_C.TEST.METRICS_ONLY = True
 # If NO_TEST=True, no testing will be conducted
 _C.TEST.NO_TEST = False
 # Use test or val set for FINAL evaluation
