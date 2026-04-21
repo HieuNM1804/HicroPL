@@ -1,0 +1,35 @@
+HiCroPL image 12-layer distill loss sweep
+Timestamp: 2026-04-21 06:56:54
+Dataset: caltech101
+Seeds: 1, 2, 3
+Shots: 16
+Trainer: HiCroPL
+Cfg: vit_b16_c2_ep50_batch32_16ctx
+Teacher LN mode: none
+Lambdas: 12
+Loss modes: mse, l1, cosine
+Image layer distill weights: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+Image layer distill last N: 4
+Num workers: 0
+
+==========================================
+ImageLayerDistillWeight: 1
+Setting                          Base    Novel       HM  BaseStd NovelStd    HMStd
+----------------------------------------------------------------------------------
+lambda12_mse                    98.39    95.67    97.01     0.33     0.33     0.30
+lambda12_l1                     98.41    95.92    97.15     0.16     0.35     0.19
+lambda12_cosine                 98.30    95.70    96.99     0.15     0.32     0.21
+
+==========================================
+ImageLayerDistillWeight: 2
+Setting                          Base    Novel       HM  BaseStd NovelStd    HMStd
+----------------------------------------------------------------------------------
+lambda12_mse                    98.34    95.59    96.95     0.32     0.32     0.30
+lambda12_l1                     98.45    95.85    97.13     0.17     0.11     0.14
+lambda12_cosine                 98.43    95.81    97.10     0.18     0.32     0.25
+
+==========================================
+ImageLayerDistillWeight: 3
+Setting                          Base    Novel       HM  BaseStd NovelStd    HMStd
+----------------------------------------------------------------------------------
+lambda12_mse                    98.36    95.63    96.98     0.33     0.11     0.13

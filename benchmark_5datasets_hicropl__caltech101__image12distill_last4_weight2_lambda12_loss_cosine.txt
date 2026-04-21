@@ -1,0 +1,26 @@
+HiCroPL benchmark on 5 datasets
+Timestamp: 2026-04-21 10:41:37
+Repo root: C:\MinhHieu\model\HiCroPL
+Data root: C:\MinhHieu\model\data
+Datasets: caltech101
+Seeds: 1, 2, 3
+Shots: 16
+Trainer: HiCroPL
+Cfg: vit_b16_c2_ep50_batch32_16ctx
+Output cfg: vit_b16_c2_ep50_batch32_16ctx__image12distill_last4_weight2_lambda12_loss_cosine
+Teacher LN mode: none
+Image layer distill: True
+Image layer distill loss: cosine
+Image layer distill weight: 2
+Image layer distill last N: 4
+Loss lambda: 12
+Num workers: 0
+Run tag: image12distill_last4_weight2_lambda12_loss_cosine
+
+
+Dataset    BaseMean NovelMean HMMean BaseStd NovelStd HMStd
+-------    -------- --------- ------ ------- -------- -----
+caltech101 98.43    95.81     97.10  0.18    0.32     0.25 
+
+
+
