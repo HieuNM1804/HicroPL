@@ -7,14 +7,13 @@ Run HiCroPL image layer distillation loss/weight sweep on Linux/Kaggle.
 
 Example:
   bash run_benchmark_5datasets_hicropl_image12distill_loss_sweep_kaggle.sh \
-    --data-root /kaggle/input/your-data-root \
     --image-layer-distill-last-n 4 \
     --lambdas 12 \
     --loss-modes mse,l1,cosine \
     --image-layer-distill-weights 0,1,2,3,4,5,6,7,8,9,10
 
 Options:
-  --data-root PATH                     Dataset root. Defaults to DATA_ROOT env or /kaggle/input/data
+  --data-root PATH                     Dataset root. Defaults to DATA_ROOT env or ../data
   --datasets a,b,c                     Defaults to caltech101,dtd,eurosat,oxford_flowers,oxford_pets
   --seeds a,b,c                        Defaults to 1,2,3
   --shots N                            Defaults to 16
@@ -38,7 +37,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$repo_root"
 
 python_exe="python"
-data_root="${DATA_ROOT:-/kaggle/input/data}"
+data_root="${DATA_ROOT:-$repo_root/../data}"
 datasets_csv="caltech101,dtd,eurosat,oxford_flowers,oxford_pets"
 seeds_csv="1,2,3"
 shots="16"
@@ -71,9 +70,11 @@ done
 
 if [[ ! -d "$data_root" ]]; then
   echo "Data root not found: $data_root" >&2
-  echo "Pass the Kaggle dataset root with --data-root, e.g. /kaggle/input/<dataset-name>/data" >&2
+  echo "Expected data root at ../data from the repo, or pass --data-root PATH." >&2
   exit 1
 fi
+
+data_root="$(cd "$data_root" && pwd)"
 
 split_csv "$datasets_csv"; datasets=("${SPLIT_CSV_RESULT[@]}")
 split_csv "$seeds_csv"; seeds=("${SPLIT_CSV_RESULT[@]}")
