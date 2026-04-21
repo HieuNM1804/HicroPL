@@ -121,10 +121,55 @@ class OxfordPets(DatasetBase):
 
     @staticmethod
     def read_split(filepath, path_prefix):
+        path_prefix = os.path.abspath(os.path.expanduser(path_prefix))
+
+        def _resolve_impath(impath):
+            impath = str(impath)
+            normalized = impath.replace("\\", "/")
+            path_prefix_norm = path_prefix.replace("\\", "/")
+            image_dir_name = os.path.basename(os.path.normpath(path_prefix))
+
+            candidates = []
+
+            if normalized.startswith(path_prefix_norm + "/"):
+                relpath = normalized[len(path_prefix_norm) + 1:]
+                candidates.append(os.path.join(path_prefix, relpath))
+
+            marker = "/" + image_dir_name + "/"
+            marker_idx = normalized.rfind(marker)
+            if marker_idx >= 0:
+                relpath = normalized[marker_idx + len(marker):]
+                candidates.append(os.path.join(path_prefix, relpath))
+
+            prefix_marker = image_dir_name + "/"
+            if normalized.startswith(prefix_marker):
+                relpath = normalized[len(prefix_marker):]
+                candidates.append(os.path.join(path_prefix, relpath))
+
+            if os.path.isabs(impath):
+                candidates.append(impath)
+
+            candidates.append(os.path.join(path_prefix, normalized.lstrip("/")))
+
+            seen = set()
+            unique_candidates = []
+            for candidate in candidates:
+                candidate = os.path.normpath(candidate)
+                if candidate in seen:
+                    continue
+                seen.add(candidate)
+                unique_candidates.append(candidate)
+
+            for candidate in unique_candidates:
+                if os.path.isfile(candidate):
+                    return candidate
+
+            return unique_candidates[0]
+
         def _convert(items):
             out = []
             for impath, label, classname in items:
-                impath = os.path.join(path_prefix, impath)
+                impath = _resolve_impath(impath)
                 item = Datum(impath=impath, label=int(label), classname=classname)
                 out.append(item)
             return out
