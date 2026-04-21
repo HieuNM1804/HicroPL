@@ -6,6 +6,7 @@ param(
     [int[]]$Seeds = @(1, 2, 3),
     [string]$TeacherLnMode = "none",
     [string]$RunTag = "",
+    [int]$NumWorkers = 0,
     [string]$PythonExe = "python",
     [string]$DataRoot = ""
 )
@@ -19,6 +20,7 @@ $Runner = Join-Path $ScriptDir "base2new_3seeds.ps1"
     -Cfg $Cfg `
     -TeacherLnMode $TeacherLnMode `
     -RunTag $RunTag `
+    -NumWorkers $NumWorkers `
     -Shots $Shots `
     -Seeds $Seeds `
     -PythonExe $PythonExe `

@@ -84,12 +84,21 @@ def compute_single_layer_distill(student_cls, teacher_cls, loss_name, kl_tempera
     raise ValueError(f"Unsupported IMAGE_LAYER_DISTILL_LOSS: {loss_name}")
 
 
-def compute_layerwise_distill(student_layerwise_cls, teacher_layerwise_cls, loss_name, kl_temperature):
+def compute_layerwise_distill(student_layerwise_cls, teacher_layerwise_cls, loss_name, kl_temperature, last_n):
     if len(student_layerwise_cls) != len(teacher_layerwise_cls):
         raise ValueError(
             "Student and teacher layerwise CLS lists must have the same length: "
             f"{len(student_layerwise_cls)} vs {len(teacher_layerwise_cls)}"
         )
+
+    if last_n < 1 or last_n > len(student_layerwise_cls):
+        raise ValueError(
+            "IMAGE_LAYER_DISTILL_LAST_N must be between 1 and the number of collected layers: "
+            f"{last_n} vs {len(student_layerwise_cls)}"
+        )
+
+    student_layerwise_cls = student_layerwise_cls[-last_n:]
+    teacher_layerwise_cls = teacher_layerwise_cls[-last_n:]
 
     losses = []
     for student_cls, teacher_cls in zip(student_layerwise_cls, teacher_layerwise_cls):
@@ -453,7 +462,10 @@ class CustomCLIP(nn.Module):
         self.teacher_ln_mode = cfg.TRAINER.HICROPL.TEACHER_LN_MODE
         self.image_layer_distill = cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL
         self.image_layer_distill_loss = cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL_LOSS
+        image_layer_distill_weight = cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL_WEIGHT
+        self.image_layer_distill_weight = self.lambd if image_layer_distill_weight < 0 else image_layer_distill_weight
         self.image_layer_distill_kl_t = cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL_KL_T
+        self.image_layer_distill_last_n = cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL_LAST_N
 
     def forward(self, image, label=None):
         tokenized_prompts = self.tokenized_prompts
@@ -504,13 +516,16 @@ class CustomCLIP(nn.Module):
             loss_distill_image = 1.0 - torch.mean(score)
             loss_distill = loss_distill_text + loss_distill_image
             if use_layerwise_image_distill:
-                loss_distill = loss_distill + compute_layerwise_distill(
+                loss_layerwise_image_distill = compute_layerwise_distill(
                     student_layerwise_cls,
                     teacher_layerwise_cls,
                     loss_name=self.image_layer_distill_loss,
                     kl_temperature=self.image_layer_distill_kl_t,
+                    last_n=self.image_layer_distill_last_n,
                 )
-            return loss_cls + self.lambd * loss_distill
+            else:
+                loss_layerwise_image_distill = 0.0
+            return loss_cls + self.lambd * loss_distill + self.image_layer_distill_weight * loss_layerwise_image_distill
         return logits
 
 
@@ -546,6 +561,7 @@ class HiCroPL(TrainerX):
         assert cfg.TRAINER.HICROPL.PREC in ["fp16", "fp32", "amp"]
         assert cfg.TRAINER.HICROPL.TEACHER_LN_MODE in TEACHER_LN_MODE_TO_KEYS
         assert cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL_LOSS in IMAGE_LAYER_DISTILL_LOSSES
+        assert 1 <= cfg.TRAINER.HICROPL.IMAGE_LAYER_DISTILL_LAST_N <= 12
 
     def build_model(self):
         cfg = self.cfg

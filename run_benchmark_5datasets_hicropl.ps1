@@ -10,8 +10,11 @@ param(
     [switch]$ImageLayerDistill,
     [ValidateSet("cosine", "l1", "smooth_l1", "mse", "kl")]
     [string]$ImageLayerDistillLoss = "cosine",
+    [double]$ImageLayerDistillWeight = [double]::NaN,
+    [int]$ImageLayerDistillLastN = 12,
     [double]$LossLambda = [double]::NaN,
     [string]$RunTag = "",
+    [int]$NumWorkers = 0,
     [string]$PythonExe = "python",
     [string]$DataRoot = "",
     [string]$SummaryFile = "benchmark_5datasets_hicropl.txt"
@@ -151,8 +154,11 @@ foreach ($Dataset in $Datasets) {
         -TeacherLnMode $TeacherLnMode `
         -ImageLayerDistill:$ImageLayerDistill `
         -ImageLayerDistillLoss $ImageLayerDistillLoss `
+        -ImageLayerDistillWeight $ImageLayerDistillWeight `
+        -ImageLayerDistillLastN $ImageLayerDistillLastN `
         -LossLambda $LossLambda `
         -RunTag $RunTag `
+        -NumWorkers $NumWorkers `
         -Shots $Shots `
         -Seeds $Seeds `
         -PythonExe $PythonExe `
@@ -188,7 +194,10 @@ foreach ($Dataset in $Datasets) {
     "Teacher LN mode: $TeacherLnMode",
     "Image layer distill: $($ImageLayerDistill.IsPresent)",
     "Image layer distill loss: $ImageLayerDistillLoss",
+    "Image layer distill weight: $ImageLayerDistillWeight",
+    "Image layer distill last N: $ImageLayerDistillLastN",
     "Loss lambda: $LossLambda",
+    "Num workers: $NumWorkers",
     "Run tag: $RunTag",
     ""
 ) | Set-Content -Path $SummaryPath

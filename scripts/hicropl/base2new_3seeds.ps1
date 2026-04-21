@@ -19,6 +19,10 @@ param(
     [ValidateSet("cosine", "l1", "smooth_l1", "mse", "kl")]
     [string]$ImageLayerDistillLoss = "cosine",
 
+    [double]$ImageLayerDistillWeight = [double]::NaN,
+
+    [int]$ImageLayerDistillLastN = 12,
+
     [double]$LossLambda = [double]::NaN,
 
     [string]$RunTag = "",
@@ -36,6 +40,12 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..\..")).Path
 $LossLambdaText = if (-not [double]::IsNaN($LossLambda)) {
     $LossLambda.ToString("0.0############", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+else {
+    ""
+}
+$ImageLayerDistillWeightText = if (-not [double]::IsNaN($ImageLayerDistillWeight)) {
+    $ImageLayerDistillWeight.ToString("0.0############", [System.Globalization.CultureInfo]::InvariantCulture)
 }
 else {
     ""
@@ -109,8 +119,12 @@ try {
         if ($ImageLayerDistill.IsPresent) {
             $TrainArgs += @(
                 "TRAINER.HICROPL.IMAGE_LAYER_DISTILL", "True",
-                "TRAINER.HICROPL.IMAGE_LAYER_DISTILL_LOSS", $ImageLayerDistillLoss
+                "TRAINER.HICROPL.IMAGE_LAYER_DISTILL_LOSS", $ImageLayerDistillLoss,
+                "TRAINER.HICROPL.IMAGE_LAYER_DISTILL_LAST_N", "$ImageLayerDistillLastN"
             )
+            if (-not [double]::IsNaN($ImageLayerDistillWeight)) {
+                $TrainArgs += @("TRAINER.HICROPL.IMAGE_LAYER_DISTILL_WEIGHT", $ImageLayerDistillWeightText)
+            }
         }
 
         if (-not [double]::IsNaN($LossLambda)) {
@@ -148,8 +162,12 @@ try {
         if ($ImageLayerDistill.IsPresent) {
             $EvalArgs += @(
                 "TRAINER.HICROPL.IMAGE_LAYER_DISTILL", "True",
-                "TRAINER.HICROPL.IMAGE_LAYER_DISTILL_LOSS", $ImageLayerDistillLoss
+                "TRAINER.HICROPL.IMAGE_LAYER_DISTILL_LOSS", $ImageLayerDistillLoss,
+                "TRAINER.HICROPL.IMAGE_LAYER_DISTILL_LAST_N", "$ImageLayerDistillLastN"
             )
+            if (-not [double]::IsNaN($ImageLayerDistillWeight)) {
+                $EvalArgs += @("TRAINER.HICROPL.IMAGE_LAYER_DISTILL_WEIGHT", $ImageLayerDistillWeightText)
+            }
         }
 
         if (-not [double]::IsNaN($LossLambda)) {

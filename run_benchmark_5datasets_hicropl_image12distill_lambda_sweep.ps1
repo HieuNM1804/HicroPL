@@ -6,6 +6,8 @@ param(
     [string]$Trainer = "HiCroPL",
     [string]$Cfg = "vit_b16_c2_ep50_batch32_16ctx",
     [int[]]$Lambdas = @(11, 12, 13, 14, 15),
+    [double]$ImageLayerDistillWeight = [double]::NaN,
+    [int]$NumWorkers = 0,
     [string]$PythonExe = "python",
     [string]$DataRoot = ""
 )
@@ -33,6 +35,8 @@ foreach ($Dataset in $Datasets) {
         "Cfg: $Cfg",
         "Teacher LN mode: none",
         "Lambdas: $($Lambdas -join ', ')",
+        "Image layer distill weight: $ImageLayerDistillWeight",
+        "Num workers: $NumWorkers",
         ""
     ) | Set-Content -Path $AggregateSummaryPath
 
@@ -58,8 +62,10 @@ foreach ($Dataset in $Datasets) {
             -Cfg $Cfg `
             -TeacherLnMode none `
             -ImageLayerDistill `
+            -ImageLayerDistillWeight $ImageLayerDistillWeight `
             -LossLambda $Lambda `
             -RunTag $RunTag `
+            -NumWorkers $NumWorkers `
             -PythonExe $PythonExe `
             -DataRoot $DataRoot `
             -SummaryFile $SummaryFile

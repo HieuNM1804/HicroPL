@@ -5,9 +5,12 @@ param(
     [string]$Dataset = "eurosat",
     [string]$Trainer = "HiCroPL",
     [string]$Cfg = "vit_b16_c2_ep50_batch32_16ctx",
-    [double[]]$Lambdas = @(1..20),
-    [ValidateSet("cosine", "l1", "smooth_l1", "mse", "kl")]
-    [string[]]$LossModes = @("cosine", "l1", "smooth_l1", "mse", "kl"),
+    [double[]]$Lambdas = @(12),
+    [ValidateSet("cosine", "l1", "mse")]
+    [string[]]$LossModes = @("cosine", "l1", "mse"),
+    [double[]]$ImageLayerDistillWeights = @(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0),
+    [int]$ImageLayerDistillLastN = 12,
+    [int]$NumWorkers = 0,
     [string]$PythonExe = "python",
     [string]$DataRoot = ""
 )
@@ -93,57 +96,91 @@ function Get-SummaryStats {
     "Teacher LN mode: none",
     "Lambdas: $($Lambdas -join ', ')",
     "Loss modes: $($LossModes -join ', ')",
+    "Image layer distill weights: $($ImageLayerDistillWeights -join ', ')",
+    "Image layer distill last N: $ImageLayerDistillLastN",
+    "Num workers: $NumWorkers",
     ""
 ) | Set-Content -Path $AggregateSummaryPath
 
 $TableHeader = "{0,-28} {1,8} {2,8} {3,8} {4,8} {5,8} {6,8}" -f "Setting", "Base", "Novel", "HM", "BaseStd", "NovelStd", "HMStd"
 
-foreach ($LossLambda in $Lambdas) {
-    $LambdaTag = $LossLambda.ToString("0.############", [System.Globalization.CultureInfo]::InvariantCulture)
+foreach ($ImageLayerDistillWeight in $ImageLayerDistillWeights) {
+    $WeightTag = if ([double]::IsNaN($ImageLayerDistillWeight)) {
+        "auto"
+    }
+    else {
+        $ImageLayerDistillWeight.ToString("0.############", [System.Globalization.CultureInfo]::InvariantCulture)
+    }
 
     Add-Content -Path $AggregateSummaryPath -Value "=========================================="
-    Add-Content -Path $AggregateSummaryPath -Value "Lambda: $LambdaTag"
+    Add-Content -Path $AggregateSummaryPath -Value "ImageLayerDistillWeight: $WeightTag"
     Add-Content -Path $AggregateSummaryPath -Value $TableHeader
     Add-Content -Path $AggregateSummaryPath -Value ("-" * $TableHeader.Length)
 
-    foreach ($LossMode in $LossModes) {
-        $RunTag = "image12distill_lambda${LambdaTag}_loss_$LossMode"
-        $OutputCfg = Get-OutputCfgName -CfgName $Cfg -RunTag $RunTag
-        $Setting = "lambda${LambdaTag}_$LossMode"
+    foreach ($LossLambda in $Lambdas) {
+        $LambdaTag = $LossLambda.ToString("0.############", [System.Globalization.CultureInfo]::InvariantCulture)
 
-        Write-Host ""
-        Write-Host "------------------------------------------" -ForegroundColor Cyan
-        Write-Host "Dataset=$Dataset | lambda=$LambdaTag | loss=$LossMode" -ForegroundColor Cyan
-        Write-Host "------------------------------------------" -ForegroundColor Cyan
+        foreach ($LossMode in $LossModes) {
+            $RunTag = "image12distill_last${ImageLayerDistillLastN}_weight${WeightTag}_lambda${LambdaTag}_loss_$LossMode"
+            $OutputCfg = Get-OutputCfgName -CfgName $Cfg -RunTag $RunTag
+            $Setting = "lambda${LambdaTag}_$LossMode"
 
-        & $Runner `
-            -Dataset $Dataset `
-            -Trainer $Trainer `
-            -Cfg $Cfg `
-            -TeacherLnMode none `
-            -ImageLayerDistill `
-            -ImageLayerDistillLoss $LossMode `
-            -LossLambda $LossLambda `
-            -RunTag $RunTag `
-            -Shots $Shots `
-            -Seeds $Seeds `
-            -PythonExe $PythonExe `
-            -DataRoot $DataRoot
+            Write-Host ""
+            Write-Host "------------------------------------------" -ForegroundColor Cyan
+            Write-Host "Dataset=$Dataset | weight=$WeightTag | lastN=$ImageLayerDistillLastN | lambda=$LambdaTag | loss=$LossMode" -ForegroundColor Cyan
+            Write-Host "------------------------------------------" -ForegroundColor Cyan
 
-        if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
+            if (-not [double]::IsNaN($ImageLayerDistillWeight)) {
+                & $Runner `
+                    -Dataset $Dataset `
+                    -Trainer $Trainer `
+                    -Cfg $Cfg `
+                    -TeacherLnMode none `
+                    -ImageLayerDistill `
+                    -ImageLayerDistillLoss $LossMode `
+                    -ImageLayerDistillWeight $ImageLayerDistillWeight `
+                    -ImageLayerDistillLastN $ImageLayerDistillLastN `
+                    -LossLambda $LossLambda `
+                    -RunTag $RunTag `
+                    -NumWorkers $NumWorkers `
+                    -Shots $Shots `
+                    -Seeds $Seeds `
+                    -PythonExe $PythonExe `
+                    -DataRoot $DataRoot
+            }
+            else {
+                & $Runner `
+                    -Dataset $Dataset `
+                    -Trainer $Trainer `
+                    -Cfg $Cfg `
+                    -TeacherLnMode none `
+                    -ImageLayerDistill `
+                    -ImageLayerDistillLoss $LossMode `
+                    -ImageLayerDistillLastN $ImageLayerDistillLastN `
+                    -LossLambda $LossLambda `
+                    -RunTag $RunTag `
+                    -NumWorkers $NumWorkers `
+                    -Shots $Shots `
+                    -Seeds $Seeds `
+                    -PythonExe $PythonExe `
+                    -DataRoot $DataRoot
+            }
+
+            if ($LASTEXITCODE -ne 0) {
+                exit $LASTEXITCODE
+            }
+
+            $Stats = Get-SummaryStats -OutputCfg $OutputCfg
+            $Row = "{0,-28} {1,8} {2,8} {3,8} {4,8} {5,8} {6,8}" -f `
+                $Setting,
+                $Stats.BaseMean,
+                $Stats.NovelMean,
+                $Stats.HMMean,
+                $Stats.BaseStd,
+                $Stats.NovelStd,
+                $Stats.HMStd
+            Add-Content -Path $AggregateSummaryPath -Value $Row
         }
-
-        $Stats = Get-SummaryStats -OutputCfg $OutputCfg
-        $Row = "{0,-28} {1,8} {2,8} {3,8} {4,8} {5,8} {6,8}" -f `
-            $Setting,
-            $Stats.BaseMean,
-            $Stats.NovelMean,
-            $Stats.HMMean,
-            $Stats.BaseStd,
-            $Stats.NovelStd,
-            $Stats.HMStd
-        Add-Content -Path $AggregateSummaryPath -Value $Row
     }
 
     Add-Content -Path $AggregateSummaryPath -Value ""

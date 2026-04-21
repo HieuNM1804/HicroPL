@@ -14,6 +14,7 @@ param(
         "ln_1_ln_2",
         "ln_1_ln_2_ln_pre_ln_post"
     ),
+    [int]$NumWorkers = 0,
     [string]$PythonExe = "python",
     [string]$DataRoot = ""
 )
@@ -42,6 +43,7 @@ foreach ($TeacherLnMode in $TeacherLnModes) {
         -Trainer $Trainer `
         -Cfg $Cfg `
         -TeacherLnMode $TeacherLnMode `
+        -NumWorkers $NumWorkers `
         -PythonExe $PythonExe `
         -DataRoot $DataRoot `
         -SummaryFile $SummaryFile
