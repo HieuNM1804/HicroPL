@@ -36,7 +36,8 @@ class DescribableTextures(DatasetBase):
                 print(f"Loading preprocessed few-shot data from {preprocessed}")
                 with open(preprocessed, "rb") as file:
                     data = pickle.load(file)
-                    train, val = data["train"], data["val"]
+                    train = OxfordPets.rebase_impaths(data["train"], self.image_dir)
+                    val = OxfordPets.rebase_impaths(data["val"], self.image_dir)
             else:
                 train = self.generate_fewshot_dataset(train, num_shots=num_shots)
                 val = self.generate_fewshot_dataset(val, num_shots=min(num_shots, 4))

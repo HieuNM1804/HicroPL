@@ -39,7 +39,8 @@ class OxfordPets(DatasetBase):
                 print(f"Loading preprocessed few-shot data from {preprocessed}")
                 with open(preprocessed, "rb") as file:
                     data = pickle.load(file)
-                    train, val = data["train"], data["val"]
+                    train = self.rebase_impaths(data["train"], self.image_dir)
+                    val = self.rebase_impaths(data["val"], self.image_dir)
             else:
                 train = self.generate_fewshot_dataset(train, num_shots=num_shots)
                 val = self.generate_fewshot_dataset(val, num_shots=min(num_shots, 4))
@@ -120,56 +121,75 @@ class OxfordPets(DatasetBase):
         print(f"Saved split to {filepath}")
 
     @staticmethod
-    def read_split(filepath, path_prefix):
+    def resolve_impath(impath, path_prefix):
         path_prefix = os.path.abspath(os.path.expanduser(path_prefix))
+        impath = str(impath)
+        normalized = impath.replace("\\", "/")
+        path_prefix_norm = path_prefix.replace("\\", "/")
+        image_dir_name = os.path.basename(os.path.normpath(path_prefix))
 
-        def _resolve_impath(impath):
-            impath = str(impath)
-            normalized = impath.replace("\\", "/")
-            path_prefix_norm = path_prefix.replace("\\", "/")
-            image_dir_name = os.path.basename(os.path.normpath(path_prefix))
+        candidates = []
 
-            candidates = []
+        if normalized.startswith(path_prefix_norm + "/"):
+            relpath = normalized[len(path_prefix_norm) + 1:]
+            candidates.append(os.path.join(path_prefix, relpath))
 
-            if normalized.startswith(path_prefix_norm + "/"):
-                relpath = normalized[len(path_prefix_norm) + 1:]
-                candidates.append(os.path.join(path_prefix, relpath))
+        marker = "/" + image_dir_name + "/"
+        marker_idx = normalized.rfind(marker)
+        if marker_idx >= 0:
+            relpath = normalized[marker_idx + len(marker):]
+            candidates.append(os.path.join(path_prefix, relpath))
 
-            marker = "/" + image_dir_name + "/"
-            marker_idx = normalized.rfind(marker)
-            if marker_idx >= 0:
-                relpath = normalized[marker_idx + len(marker):]
-                candidates.append(os.path.join(path_prefix, relpath))
+        prefix_marker = image_dir_name + "/"
+        if normalized.startswith(prefix_marker):
+            relpath = normalized[len(prefix_marker):]
+            candidates.append(os.path.join(path_prefix, relpath))
 
-            prefix_marker = image_dir_name + "/"
-            if normalized.startswith(prefix_marker):
-                relpath = normalized[len(prefix_marker):]
-                candidates.append(os.path.join(path_prefix, relpath))
+        if os.path.isabs(impath):
+            candidates.append(impath)
 
-            if os.path.isabs(impath):
-                candidates.append(impath)
+        candidates.append(os.path.join(path_prefix, normalized.lstrip("/")))
 
-            candidates.append(os.path.join(path_prefix, normalized.lstrip("/")))
+        seen = set()
+        unique_candidates = []
+        for candidate in candidates:
+            candidate = os.path.normpath(candidate)
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            unique_candidates.append(candidate)
 
-            seen = set()
-            unique_candidates = []
-            for candidate in candidates:
-                candidate = os.path.normpath(candidate)
-                if candidate in seen:
-                    continue
-                seen.add(candidate)
-                unique_candidates.append(candidate)
+        for candidate in unique_candidates:
+            if os.path.isfile(candidate):
+                return candidate
 
-            for candidate in unique_candidates:
-                if os.path.isfile(candidate):
-                    return candidate
+        return unique_candidates[0]
 
-            return unique_candidates[0]
+    @staticmethod
+    def rebase_impaths(items, path_prefix):
+        rebased = []
+        for item in items:
+            impath = OxfordPets.resolve_impath(item.impath, path_prefix)
+            if impath == item.impath:
+                rebased.append(item)
+                continue
+            rebased.append(
+                Datum(
+                    impath=impath,
+                    label=item.label,
+                    domain=item.domain,
+                    classname=item.classname
+                )
+            )
+        return rebased
+
+    @staticmethod
+    def read_split(filepath, path_prefix):
 
         def _convert(items):
             out = []
             for impath, label, classname in items:
-                impath = _resolve_impath(impath)
+                impath = OxfordPets.resolve_impath(impath, path_prefix)
                 item = Datum(impath=impath, label=int(label), classname=classname)
                 out.append(item)
             return out
