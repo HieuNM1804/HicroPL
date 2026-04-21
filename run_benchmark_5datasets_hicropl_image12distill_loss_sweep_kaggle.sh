@@ -36,6 +36,9 @@ split_csv() {
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$repo_root"
 
+export TF_CPP_MIN_LOG_LEVEL="${TF_CPP_MIN_LOG_LEVEL:-3}"
+export TF_ENABLE_ONEDNN_OPTS="${TF_ENABLE_ONEDNN_OPTS:-0}"
+
 python_exe="python"
 data_root="${DATA_ROOT:-$repo_root/../data}"
 datasets_csv="caltech101,dtd,eurosat,oxford_flowers,oxford_pets"

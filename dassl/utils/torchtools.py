@@ -98,13 +98,21 @@ def load_checkpoint(fpath):
 
     map_location = None if torch.cuda.is_available() else "cpu"
 
+    def _torch_load(path, **kwargs):
+        try:
+            return torch.load(path, weights_only=False, **kwargs)
+        except TypeError:
+            return torch.load(path, **kwargs)
+
     try:
-        checkpoint = torch.load(fpath, map_location=map_location)
+        # Training checkpoints store optimizer/scheduler state, which PyTorch
+        # 2.6+ refuses to unpickle unless weights_only is explicitly disabled.
+        checkpoint = _torch_load(fpath, map_location=map_location)
 
     except UnicodeDecodeError:
         pickle.load = partial(pickle.load, encoding="latin1")
         pickle.Unpickler = partial(pickle.Unpickler, encoding="latin1")
-        checkpoint = torch.load(
+        checkpoint = _torch_load(
             fpath, pickle_module=pickle, map_location=map_location
         )
 
